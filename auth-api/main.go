@@ -26,7 +26,7 @@ type User struct {
 }
 
 type Request struct {
-	// Id      int    `json:"id"`
+	Email   string `json:"email"`
 	Name    string `json:"name"`
 	Url     string `json:"url"`
 	Comment string `json:"comment"`
@@ -206,6 +206,52 @@ func login(w http.ResponseWriter, r *http.Request) {
 	jwt.Token = token
 
 	responseByJSON(w, jwt)
+}
+
+func request(w http.ResponseWriter, r *http.Request) {
+	var request Request
+	var error Error
+
+	json.NewDecoder(r.Body).Decode(&request)
+
+	if request.Email == "" {
+		error.Message = "Email は必須です。"
+		errorInResponse(w, http.StatusBadRequest, error)
+		return
+	}
+
+	if request.Name == "" {
+		error.Message = "リクエストは必須です。"
+		errorInResponse(w, http.StatusBadRequest, error)
+	}
+
+	// 認証キー(Emal)のユーザー情報をDBから取得
+	user_id := db.QueryRow("SELECT id FROM USERS WHERE email=$1;", request.Email)
+	// ハッシュ化している
+	var id int
+	err := user_id.Scan(&id)
+
+	if err != nil {
+		if err == sql.ErrNoRows { // https://golang.org/pkg/database/sql/#pkg-variables
+			error.Message = "ユーザが存在しません。"
+			errorInResponse(w, http.StatusBadRequest, error)
+		} else {
+			log.Fatal(err)
+		}
+	}
+
+	fmt.Println(request.Name, request.Url, request.Comment, id)
+
+	// 認証キー(Emal)のユーザー情報をDBから取得
+	ins, err := db.Prepare("INSERT INTO REQUESTS(NAME, URL, COMMENT, USER_ID) VALUES($1, $2, $3, $4);")
+
+	if err != nil {
+		log.Fatal(err)
+	}
+	ins.Exec(request.Name, request.Url, request.Comment, id)
+
+	defer ins.Close()
+
 }
 
 func verifyEndpoint(w http.ResponseWriter, r *http.Request) {
@@ -404,6 +450,7 @@ func main() {
 	// endpoint
 	router.HandleFunc("/signup", signup).Methods("POST")
 	router.HandleFunc("/login", login).Methods("POST")
+	router.HandleFunc("/request", request).Methods("POST")
 	// service はあとで記述する
 	router.HandleFunc("/verify", tokenVerifyMiddleWare(verifyEndpoint)).Methods("GET")
 
